@@ -1,0 +1,68 @@
+# Dependências
+node_modules/
+*/node_modules/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivos de runtime
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Diretório de cobertura gerado por ferramentas como istanbul
+coverage/
+
+# Diretório de dependências do npm
+.npm
+
+# Logs do ESLint
+.eslintcache
+
+# Dependências opcionais do npm
+.node_repl_history
+
+# Saída do 'npm pack'
+*.tgz
+
+# Arquivo de integridade do Yarn
+.yarn-integrity
+
+# Arquivo de variáveis de ambiente
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build da aplicação React
+client/build/
+build/
+
+# Certificados SSL (sensíveis!)
+server/certificates/
+certificates/
+*.pem
+*.crt
+*.key
+*.csr
+*.srl
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Cache
+.cache/ 
