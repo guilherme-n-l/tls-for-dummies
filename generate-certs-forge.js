@@ -2,57 +2,71 @@ const forge = require('node-forge');
 const fs = require('fs');
 const path = require('path');
 
-
 const certsDir = path.join(__dirname, 'certs');
 if (!fs.existsSync(certsDir)) {
   fs.mkdirSync(certsDir, { recursive: true });
 }
 
-const certPath = path.join(certsDir, 'certificate.pem');
-const keyPath = path.join(certsDir, 'private-key.pem');
+['ca-cert.pem', 'server-cert.pem', 'server-key.pem'].forEach(filename => {
+  const filePath = path.join(certsDir, filename);
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+});
 
-if (fs.existsSync(certPath)) fs.unlinkSync(certPath);
-if (fs.existsSync(keyPath)) fs.unlinkSync(keyPath);
+try {
+  const caKeys = forge.pki.rsa.generateKeyPair(2048);
+  const caCert = forge.pki.createCertificate();
+  caCert.publicKey = caKeys.publicKey;
+  caCert.serialNumber = '01';
+  caCert.validity.notBefore = new Date();
+  caCert.validity.notAfter = new Date();
+  caCert.validity.notAfter.setFullYear(caCert.validity.notBefore.getFullYear() + 10);
 
-try {  
-  const keys = forge.pki.rsa.generateKeyPair(2048);
-    
-  const cert = forge.pki.createCertificate();
-  cert.publicKey = keys.publicKey;
-  cert.serialNumber = '01';
-  cert.validity.notBefore = new Date();
-  cert.validity.notAfter = new Date();
-  cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 10);
-  
-  const attrs = [
+  const caAttrs = [
+    { name: 'commonName', value: 'InteliCA' },
+    { name: 'countryName', value: 'BR' },
+    { name: 'stateOrProvinceName', value: 'Localhost' },
+    { name: 'localityName', value: 'Localhost' },
+    { name: 'organizationName', value: 'Inteli' },
+    { name: 'organizationalUnitName', value: 'Security' }
+  ];
+
+  caCert.setSubject(caAttrs);
+  caCert.setIssuer(caAttrs);
+  caCert.setExtensions([
+    { name: 'basicConstraints', cA: true },
+    { name: 'keyUsage', keyCertSign: true, digitalSignature: true },
+    { name: 'subjectKeyIdentifier' }
+  ]);
+  caCert.sign(caKeys.privateKey, forge.md.sha256.create());
+
+  const serverKeys = forge.pki.rsa.generateKeyPair(2048);
+  const serverCert = forge.pki.createCertificate();
+  serverCert.publicKey = serverKeys.publicKey;
+  serverCert.serialNumber = '02';
+  serverCert.validity.notBefore = new Date();
+  serverCert.validity.notAfter = new Date();
+  serverCert.validity.notAfter.setFullYear(serverCert.validity.notBefore.getFullYear() + 5);
+
+  const serverAttrs = [
     { name: 'commonName', value: 'localhost' },
-    { name: 'countryName', value: 'CHN' },
-    { name: 'stateOrProvinceName', value: 'Shenzhen' },
-    { name: 'localityName', value: 'Shenzhen' },
+    { name: 'countryName', value: 'BR' },
+    { name: 'stateOrProvinceName', value: 'Localhost' },
     { name: 'organizationName', value: 'Stablishing TLS' },
     { name: 'organizationalUnitName', value: 'Silk Road' }
   ];
-  
-  cert.setSubject(attrs);
-  cert.setIssuer(attrs);
-  
-  cert.setExtensions([
-    {
-      name: 'basicConstraints',
-      cA: true
-    },
+
+  serverCert.setSubject(serverAttrs);
+  serverCert.setIssuer(caCert.subject.attributes);
+  serverCert.setExtensions([
+    { name: 'basicConstraints', cA: false },
     {
       name: 'keyUsage',
-      keyCertSign: true,
       digitalSignature: true,
-      nonRepudiation: true,
-      keyEncipherment: true,
-      dataEncipherment: true
+      keyEncipherment: true
     },
     {
       name: 'extKeyUsage',
-      serverAuth: true,
-      clientAuth: true
+      serverAuth: true
     },
     {
       name: 'subjectAltName',
@@ -64,43 +78,32 @@ try {
       ]
     }
   ]);
-  
-  
-  cert.sign(keys.privateKey, forge.md.sha256.create());
-  
-  console.log('💾 Salvando arquivos...');
-  
-  const certPem = forge.pki.certificateToPem(cert);
-  const keyPem = forge.pki.privateKeyToPem(keys.privateKey);
-  
-  fs.writeFileSync(certPath, certPem, 'utf8');
-  fs.writeFileSync(keyPath, keyPem, 'utf8');
-  
-  const certStats = fs.statSync(certPath);
-  const keyStats = fs.statSync(keyPath);
+  serverCert.sign(caKeys.privateKey, forge.md.sha256.create());
 
-  try {
-    const loadedCert = forge.pki.certificateFromPem(certPem);
-    const loadedKey = forge.pki.privateKeyFromPem(keyPem);
+  fs.writeFileSync(path.join(certsDir, 'ca-cert.pem'), forge.pki.certificateToPem(caCert), 'utf8');
+  fs.writeFileSync(path.join(certsDir, 'server-cert.pem'), forge.pki.certificateToPem(serverCert), 'utf8');
+  fs.writeFileSync(path.join(certsDir, 'server-key.pem'), forge.pki.privateKeyToPem(serverKeys.privateKey), 'utf8');
 
-    const testData = 'test';
-    const signature = loadedKey.sign(forge.md.sha256.create().update(testData).digest());
-    const verified = loadedCert.publicKey.verify(
-      forge.md.sha256.create().update(testData).digest().bytes(),
-      signature
-    );
-    
-    if (verified) {
-      console.log('✅ Certificado validado - Chaves correspondem!');
-    } else {
-      console.log('⚠️ Aviso: Problema na validação das chaves');
-    }
-  } catch (validationError) {
-    console.log('⚠️ Aviso na validação:', validationError.message);
+  const testData = 'tls-check';
+  const md = forge.md.sha256.create();
+  md.update(testData, 'utf8');
+  const signature = serverKeys.privateKey.sign(md);
+  
+  const mdVerify = forge.md.sha256.create();
+  mdVerify.update(testData, 'utf8');
+  const verified = serverCert.publicKey.verify(mdVerify.digest().bytes(), signature);
+  
+  if (verified) {
+    console.log('✅ Certificado do servidor validado com sucesso.');
+  } else {
+    console.log('⚠️ Problema na verificação do certificado do servidor.');
   }
-  
+  console.log('\n📂 Arquivos gerados em /certs:');
+  console.log('- ca-cert.pem       (⚠️ Importar no navegador)');
+  console.log('- server-cert.pem   (Usar no servidor)');
+  console.log('- server-key.pem    (Usar no servidor)');
+
 } catch (error) {
   console.error('❌ Erro ao gerar certificados:', error.message);
-  console.log('\n🔧 Detalhes do erro:');
   console.log(error.stack);
-} 
+}
