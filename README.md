@@ -24,8 +24,10 @@ OpenSSL is a tool used to create TLS certificates, including the private key. It
 * On **Linux** or **macOS**, OpenSSL should already be available in the terminal. You can check if it’s installed by typing:
 
   ```bash
-  openssl version
+  openssl --version
   ```
+
+  ![](./img/ossl-version.png)
 
 * On **Windows**, you can download OpenSSL from [here](https://slproweb.com/products/Win32OpenSSL.html).
 
@@ -45,6 +47,8 @@ Let’s break this down:
 * `-aes256` encrypts the private key using AES (Advanced Encryption Standard) with a 256-bit key.
 
 > Note: You’ll be prompted to set a password for the private key file. If you don’t want to encrypt the private key with a password, you can omit the `-aes256` part
+
+![](./img/ossl-privk.png)
 
 #### 3. Verify the Private Key
 
@@ -98,6 +102,8 @@ Let’s break it down:
 
 You’ll be prompted to enter some details for the certificate (like your country, organization name, etc.). These can be whatever you like, but the **Common Name (CN)** field should typically be something like "My Custom CA" or the name you want to associate with your CA.
 
+![](./img/ossl-ca.png)
+
 #### 2. Verify Your Root Certificate
 
 Once you’ve created the certificate, you can verify it with:
@@ -133,14 +139,14 @@ To create a server certificate, you first need to generate a **Certificate Signi
 Here’s the command to generate the CSR:
 
 ```bash
-openssl req -new -key server-private.key -out server.csr
+openssl req -new -key private.key -out server.csr
 ```
 
 Let’s break this down:
 
 * `openssl req`: Tells OpenSSL to generate a certificate request (CSR).
 * `-new`: Indicates that a new CSR is being generated.
-* `-key server-private.key`: Specifies the private key that corresponds to the public key in the server certificate. If you don’t have a server-private.key yet, you can generate it with `openssl genpkey`.
+* `-key private.key`: Specifies the private key that corresponds to the public key in the server certificate.
 * `-out server.csr`: Specifies the output filename for the CSR, which is `server.csr` in this case.
 
 When you run this command, you’ll be prompted to enter some details for the CSR. These details include:
@@ -150,10 +156,13 @@ When you run this command, you’ll be prompted to enter some details for the CS
 * **Locality Name (L)**
 * **Organization Name (O)**
 * **Organizational Unit Name (OU)**
-* **Common Name (CN)**: Normally, this would be the fully qualified domain name (FQDN) of your server, such as `www.example.com`. **However, if you’re using an IP address** for internal systems or testing purposes, you can use the server’s **IP address** as the CN. Keep in mind that **major public CAs** generally require a domain name rather than an IP address, and may not accept an IP for validation.
+* **Common Name (CN)**: Normally, this would be the fully qualified domain name (FQDN) of your server, such as `www.example.com`. **However, if you’re using an IP address** for internal systems or testing purposes, you can use the server’s **IP address** as the CN.
+    ![](./img/ip.png)
 * **Email Address**: You can leave this blank, or provide a contact email.
 
 > Note: While public CAs require domain names to issue a certificate, if you are generating a certificate for internal or non-public use, you can safely use a private IP address here.
+
+![](./img/ossl-server-ctr.png)
 
 #### 2. Sign the Server Certificate with Your CA
 
@@ -177,6 +186,8 @@ Let’s break this down:
 
 Once this command is run, you will have a signed server certificate (`server-cert.pem`) that is trusted by your CA.
 
+![](./img/ossl-server-pem.png)
+
 #### 3. Verify Your Server Certificate
 
 To verify the server certificate, use the following command:
@@ -189,97 +200,130 @@ This will display the details of your signed server certificate, including the p
 
 If everything looks good, your server certificate is now ready to be installed on your server!
 
-### 4. Install the Server Certificate
+#### 4. Install the Server Certificate
 
 Once you have the signed server certificate, you can install it on your server.
 
-#### Running Apache Server on Docker
+#### 5. Ensure CA is Trusted
 
-Now that you have your server certificate, let's set up Apache inside a Docker container and enable SSL. Docker is a platform that allows you to create, deploy, and run applications in isolated containers. It's an efficient way to package applications with all their dependencies, ensuring they run consistently across different environments.
+To ensure that your server’s certificate is trusted by clients (such as web browsers), you need to install the **Certificate Authority (CA)** certificate on the client machines. This allows browsers to recognize your self-signed CA as a trusted source.
 
-If you haven’t installed Docker yet, you can follow the official Docker installation guide for your platform here: [Docker Installation Guide](https://docs.docker.com/get-started/get-docker/)
+##### For Google Chrome (Windows/macOS)
 
-##### Prepare Your Files
+1. **Open Chrome** and go to the settings:
 
-Before running the container, make sure you have the following files available:
+   * Click the **three vertical dots** (top-right) and select **Settings**.
 
-* **server-cert.pem**: Your signed server certificate.
-* **private.key**: The private key for your server.
-* **ca-cert.pem**: The root certificate of your Certificate Authority (CA).
-* **my-ssl.conf**: A custom Apache configuration file for enabling SSL. This will set up Apache to listen on port 443 and use the SSL certificates.
+2. **Access the Certificate Manager**:
 
-Here's an example of what the `my-ssl.conf` file might look like:
+   * Scroll down and click **Advanced**.
+   * Under the **Privacy and security** section, click **Security**.
+   * Scroll down to **Manage certificates**. This will open the **Certificate Manager**.
+   * Navigate under **Custom**, select the **Installed by you** option
 
-```xml
-<VirtualHost *:443>
-    DocumentRoot /usr/local/apache2/htdocs
-    ServerName localhost
+3. **Import the CA Certificate**:
 
-    SSLEngine on
-    SSLCertificateFile /etc/ssl/certs/server-cert.pem
-    SSLCertificateKeyFile /etc/ssl/private/private.key
-</VirtualHost>
-```
+   * Click on the **Import** button under the **Trusted Certificates** tab.
+   * Browse to your `ca-cert.pem` file and select it.
 
-> Note: If using an actual domain name, you could replace the `ServerName` field (e.g.: [example.com]())
+4. **Restart Chrome** for the changes to take effect.
 
-#### **2. Run Apache in Docker with SSL**
+##### For Mozilla Firefox (Windows/macOS)
 
-Now, use the following `docker run` command to start Apache in a container with SSL enabled. We’ll mount the necessary certificate files and configuration file as volumes inside the container.
+1. **Open Firefox** and go to the settings:
 
-```bash
-docker run -d \
-  --name apache-ssl \
-  -p 8080:80 -p 8443:443 \
-  -v /path/to/your/server-cert.pem:/etc/ssl/certs/server-cert.pem \
-  -v /path/to/your/private.key:/etc/ssl/private/private.key \
-  -v /path/to/your/ca-cert.pem:/etc/ssl/certs/ca-cert.pem \
-  -v /path/to/your/my-ssl.conf:/usr/local/apache2/conf/extra/my-ssl.conf \
-  httpd:2.4
-```
+   * Click the **three horizontal lines** (top-right) and select **Settings**.
 
-### Breakdown of the `docker run` Command
+2. **Access the Certificate Manager**:
 
-* `-d`: Runs the container in detached mode, allowing it to run in the background.
-* `--name apache-ssl`: Names the container `apache-ssl` for easy reference.
-* `-p 80:80 -p 443:443`: Exposes ports 80 (HTTP) and 443 (HTTPS) to the host machine, allowing external access to your server via these ports.
-* `-v /path/to/your/server-cert.pem:/etc/ssl/certs/server-cert.pem`: Mounts your server certificate to the container.
-* `-v /path/to/your/private.key:/etc/ssl/private/private.key`: Mounts your private key to the container.
-* `-v /path/to/your/ca-cert.pem:/etc/ssl/certs/ca-cert.pem`: Mounts your CA certificate to the container.
-* `-v /path/to/your/my-ssl.conf:/usr/local/apache2/conf/extra/my-ssl.conf`: Mounts your Apache SSL configuration file to the container.
-* `httpd:2.4`: Specifies the official Apache HTTP Server image version 2.4.
+   * Scroll down and click **Privacy & Security**.
+   * Scroll down to the **Certificates** section.
+   * Click on **View Certificates**.
 
-#### **3. Modify Apache Configuration to Enable SSL**
+3. **Import the CA Certificate**:
 
-By default, the Apache image might not include SSL configured out of the box. The `my-ssl.conf` file that you mounted above will need to be included in the main Apache configuration.
+   * Go to the **Authorities** tab.
+   * Click on **Import**, and browse to your `ca-cert.pem` file.
+   * Ensure the box next to **Trust this CA to identify websites** is checked.
 
-To make sure that Apache loads your SSL configuration, you'll need to include it in the main Apache config file. Here's how you can ensure that the SSL configuration is loaded:
+4. **Restart Firefox** for the changes to take effect.
 
-1. Enter the running container with:
+By adding your **self-signed CA certificate** to the browser’s list of trusted authorities, any server certificates signed by your CA will now be trusted by that browser.
 
-   ```bash
-   docker exec -it apache-ssl bash
-   ```
+![](./img/ff-ca.png)
 
-2. Once inside the container, edit the `httpd.conf` file to include your custom SSL configuration:
+## Creating Your HTTPS Server with Python
 
-   ```bash
-   apt update && apt install nano
-   nano /usr/local/apache2/conf/httpd.conf
-   ```
+Now that you've generated your private key (`private.key`), root certificate (`ca-cert.pem`), and signed server certificate (`server-cert.pem`), it's time to set up a basic HTTPS server using Python. This is a simple yet effective way to serve secure content using **TLS/SSL**.
 
-   Add the following line to include your SSL configuration:
+We'll use Python's built-in `http.server` module and provide the server with both the private key and the server certificate to ensure secure HTTPS communication.
 
-   ```apache
-   Include /usr/local/apache2/conf/extra/my-ssl.conf
-   ```
+### Step-by-Step Process
 
-3. Save the changes and exit the container.
+#### 1. Install Python (If Not Already Installed)
 
-#### **4. Restart Apache in the Container**
-
-After updating the Apache configuration, you’ll need to restart Apache for the changes to take effect. Run the following command to restart Apache inside the container:
+Most systems come with Python pre-installed. To verify that Python is available, open a terminal and run:
 
 ```bash
-docker restart 
+python3 --version
 ```
+
+If it's not installed, you can download and install it from the [official Python website](https://www.python.org/downloads/).
+
+#### 3. Write the Python Script to Launch the HTTPS Server
+
+You can use Python’s built-in `http.server` module, which allows you to easily create an HTTPS server. However, we will need to provide it with the server's certificate and private key to enable HTTPS.
+
+Create a Python script, say `https_server.py`, in the same directory as your certificate and key files, and open it in your preferred text editor.
+
+Paste the following code inside `https_server.py`:
+
+```python
+import http.server
+import ssl
+
+# Set up the server address and port
+server_address = (
+    "",
+    4443,
+)  # Empty string means the server will listen on all available interfaces, port 4443
+
+# Create the HTTP server
+httpd = http.server.HTTPServer(server_address, http.server.SimpleHTTPRequestHandler)
+
+# Create an SSLContext
+context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+
+# Load the server's private key and certificate
+context.load_cert_chain(certfile="server-cert.pem", keyfile="private.key")
+
+# Wrap the server socket with SSL/TLS using the context
+httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+
+print("Starting HTTPS server on port 4443...")
+httpd.serve_forever()
+```
+
+#### 5. Access the HTTPS Server in Your Browser
+
+* Open your browser and navigate to `https://[PRIVATE IP ADDRESS]:4443`
+
+> Note: You might see a **security warning** because your certificate is self-signed with an IP address as a CN. Just ignore it for the sake of this tutorial
+
+#### 6. Verify the Connection is Secure
+
+To verify that the connection is indeed using HTTPS and your certificates are correctly installed:
+
+1. **Check the URL**: Ensure that the URL in the browser’s address bar starts with `https://`.
+2. **Inspect the Certificate**:
+
+   * **In Chrome**: Click the padlock icon in the address bar, then click **Certificate** to view the certificate details. It should show your server certificate and that it is issued by your self-signed CA.
+   * **In Firefox**: Similarly, click the padlock icon in the address bar, click **More Information**, and then **View Certificate** to see the details.
+
+    ![](./img/ff-https.png)
+
+## Conclusion
+
+You've now successfully created a **secure HTTPS server** using Python with your own self-signed certificates! This server uses **TLS/SSL encryption** to secure the communication, ensuring data is transmitted securely between clients and the server.
+
+This setup is perfect for testing, development, and internal use, but for production environments, you should consider using a trusted third-party Certificate Authority (CA) for your server certificates to avoid browser warnings for users.
