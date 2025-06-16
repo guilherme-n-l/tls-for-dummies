@@ -1,336 +1,346 @@
-# TLS for Dummies: Understanding HTTPS in Practice
+# TLS 4 Dummies
 
-A hands-on demonstration of **TLS (Transport Layer Security)** that shows the difference between secure and insecure web connections. This project runs both HTTP and HTTPS servers side-by-side so you can see encryption in action.
+## Gerando uma Chave Privada
 
-## What is TLS?
+Para entender como gerar uma chave privada, primeiro é preciso saber o que é uma chave privada.
 
-**TLS (Transport Layer Security)** is a cryptographic protocol that provides secure communication over networks. When you see `https://` in your browser, that's TLS working to:
+### O que é uma Chave Privada?
 
-1. **Encrypt data** between your browser and the server
-2. **Authenticate** the server's identity 
-3. **Ensure data integrity** (prevent tampering)
+Uma **chave privada** é uma chave secreta usada em **Criptografia Assimétrica**. Ela é emparelhada com uma **chave pública** e serve para criptografar e descriptografar mensagens com segurança.
 
-Without TLS, all data travels in **plain text** - anyone can read your passwords, personal information, and sensitive data.
+### Por que Você Precisa de Uma?
 
-## What This Demo Shows
+Você precisa de uma chave privada para:
 
-This application demonstrates TLS by running two servers simultaneously:
+1. **Criptografar informações** que só podem ser descriptografadas por quem possuir a chave pública correspondente.  
+2. **Assinar certificados** que comprovam a identidade do seu servidor (ao configurar um certificado TLS/SSL).
 
-- **HTTP Server** (Port 6968): Insecure, unencrypted communication
-- **HTTPS Server** (Port 6969): Secure, TLS-encrypted communication
+### Passo a Passo
 
-You'll visually see the difference and understand how TLS certificates work.
+#### 1. Instalar o OpenSSL
 
-## Prerequisites
+OpenSSL é uma ferramenta usada para criar certificados TLS, incluindo a chave privada. Ele já vem instalado na maioria dos sistemas Unix (como Linux ou macOS), mas se você estiver usando Windows, pode ser necessário instalá-lo manualmente.
 
-- **Node.js** (v12 or higher)
-- A modern web browser
-- Terminal/Command prompt
+* Em **Linux** ou **macOS**, o OpenSSL já deve estar disponível no terminal. Você pode checar digitando:
 
-## Step-by-Step Setup and Explanation
+  ```bash
+  openssl --version
+   ```
 
-### Step 1: Install Dependencies
+![](./img/ossl-version.png)
+
+* No **Windows**, você pode baixar o OpenSSL [aqui](https://slproweb.com/products/Win32OpenSSL.html).
+
+#### 2. Gerar a Chave Privada
+
+Agora estamos prontos para gerar a chave privada. Este passo cria um arquivo que somente você (ou seu servidor) pode usar. Gere uma chave RSA com o comando:
 
 ```bash
-npm install
+openssl genpkey -algorithm RSA -out private.key -aes256
 ```
 
-**What this does:** Installs the required Node.js packages, including:
-- `express` - Web server framework
-- `node-forge` - JavaScript implementation of TLS for certificate generation
+Que significa:
 
-### Step 2: Generate TLS Certificates
+* `openssl genpkey`: diz ao OpenSSL para gerar uma chave.
+* `-algorithm RSA`: especifica o algoritmo RSA para a chave privada.
+* `-out private.key`: salva a chave privada no arquivo `private.key`.
+* `-aes256`: criptografa a chave privada com AES-256.
+
+> Observação: você será solicitado a criar uma senha para o arquivo da chave. Se não quiser protegê-la com senha, omita `-aes256`.
+
+![](./img/ossl-privk.png)
+
+#### 3. Verificar a Chave Privada
+
+Depois de gerar a chave privada, verifique-a com:
+
+```bash
+openssl pkey -in private.key -text -noout
+```
+
+Isso exibirá detalhes da chave, como tamanho e metadados. Se aparecerem informações, a chave foi criada com sucesso!
+
+#### 4. Segurança da Chave Privada
+
+* **Mantenha sua chave privada segura!** Ela **nunca** deve ser compartilhada.
+* Armazene-a em local seguro e defina permissões restritas no arquivo.
+
+## Criando Sua Autoridade Certificadora (CA)
+
+### O que é uma Certificate Authority (CA)?
+
+Uma **Autoridade Certificadora (CA)** é uma entidade confiável que emite certificados digitais, autenticando identidades e garantindo comunicação segura.
+
+Em contexto público, CAs conhecidas como **Let's Encrypt**, **DigiCert** ou **Comodo** emitem certificados para sites. Para uso interno, você pode criar sua própria CA e assinar certificados com ela.
+
+### Por que Criar Sua Própria CA?
+
+1. **Redes privadas**: não é necessário depender de CAs públicas.
+2. **Controle total**: você define quem confia e como os certificados são emitidos ou revogados.
+3. **Sem custos**: não há taxas de uma CA pública.
+
+### Passo a Passo
+
+#### 1. Criar um Certificado Raiz Autoassinado (CA)
+
+O certificado raiz é o certificado público usado por sua CA para assinar outros certificados. Clientes confiarão nele quando o conhecerem.
+
+Crie o **certificado raiz** com:
+
+```bash
+openssl req -key private.key -new -x509 -out ca-cert.pem -days 3650
+```
+
+Explicando:
+
+* `openssl req`: cria uma solicitação de assinatura de certificado (CSR).
+* `-key private.key`: usa a chave privada gerada para sua CA.
+* `-new`: gera uma nova CSR.
+* `-x509`: gera um certificado autoassinado (torna-o raiz).
+* `-out ca-cert.pem`: define o arquivo de saída.
+* `-days 3650`: validade de 10 anos (ajustável).
+
+Será solicitado o preenchimento de dados (país, organização, etc.). O campo **Common Name (CN)** pode ser algo como "Minha CA" ou o nome que preferir.
+
+![](./img/ossl-ca.png)
+
+#### 2. Verificar o Certificado Raiz
+
+```bash
+openssl x509 -in ca-cert.pem -text -noout
+```
+
+Isso mostra detalhes como data de expiração e chave pública. Se estiver tudo certo, sua CA está pronta.
+
+## Criando o Certificado do Servidor
+
+### O que é um Certificado de Servidor?
+
+Um **certificado de servidor** comprova a identidade do servidor para os clientes. Ele contém a chave pública e detalhes de identidade do servidor. Normalmente é assinado por uma CA confiável; aqui usaremos sua própria CA.
+
+### Por que Preciso de um Certificado de Servidor?
+
+1. **Autenticação do servidor**.
+2. **Criptografia da comunicação**.
+3. **Evitar ataques Man-in-the-Middle**.
+
+### Passo a Passo
+
+#### 1. Criar a CSR (Certificate Signing Request)
+
+```bash
+openssl req -new -key private.key -out server.csr
+```
+
+* `openssl req`: gera uma CSR.
+* `-new`: nova CSR.
+* `-key private.key`: chave privada correspondente.
+* `-out server.csr`: saída `server.csr`.
+
+Ao executar, preencha:
+
+* **Country, State, Locality, Organization, OU**
+* **Common Name (CN)**: normalmente FQDN, mas em rede interna pode usar o **IP**.
+  ![](./img/ip.png)
+* **Email** (opcional).
+
+![](./img/ossl-server-ctr.png)
+
+#### 2. Assinar o Certificado com Sua CA
+
+```bash
+openssl x509 -req -in server.csr -CA ca-cert.pem -CAkey private.key -CAcreateserial -out server-cert.pem -days 3650
+```
+
+* `openssl x509 -req`: cria o certificado a partir da CSR.
+* `-in server.csr`: CSR criada.
+* `-CA ca-cert.pem`: certificado raiz.
+* `-CAkey private.key`: chave da CA.
+* `-CAcreateserial`: cria arquivo de série.
+* `-out server-cert.pem`: certificado assinado.
+* `-days 3650`: validade de 10 anos.
+
+![](./img/ossl-server-pem.png)
+
+#### 3. Verificar o Certificado do Servidor
+
+```bash
+openssl x509 -in server-cert.pem -text -noout
+```
+
+Se tudo estiver correto, o certificado está pronto.
+
+#### 4. Instalar o Certificado no Servidor
+
+Instale `server-cert.pem` e `private.key` no seu servidor conforme o software utilizado.
+
+#### 5. Garantir que a CA é Confiável
+
+Instale `ca-cert.pem` nos clientes para que confiem nos certificados assinados por ela.
+
+##### Google Chrome (Windows/macOS)
+
+1. **Configurações → Avançado → Segurança → Gerenciar certificados**.
+2. **Importar** em **Trusted Certificates** e selecione `ca-cert.pem`.
+3. Reinicie o navegador.
+
+##### Mozilla Firefox (Windows/macOS)
+
+1. **Configurações → Privacidade & Segurança → Certificados → Ver Certificados**.
+2. Aba **Authorities → Import** → `ca-cert.pem`.
+3. Marque **Trust this CA to identify websites**.
+4. Reinicie o Firefox.
+
+![](./img/ff-ca.png)
+
+## Criando um Servidor HTTPS em Python
+
+Com `private.key`, `ca-cert.pem` e `server-cert.pem`, vamos configurar um servidor HTTPS básico em Python usando o módulo `http.server`.
+
+### Passo a Passo
+
+#### 1. Verificar o Python
+
+```bash
+python3 --version
+```
+
+Se necessário, baixe em [python.org](https://www.python.org/downloads/).
+
+#### 2. Escrever o Script `https_server.py`
+
+```python
+import http.server
+import ssl
+
+# Endereço e porta
+server_address = ("", 4443)
+
+# Servidor HTTP
+httpd = http.server.HTTPServer(server_address, http.server.SimpleHTTPRequestHandler)
+
+# Contexto SSL
+context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+context.load_cert_chain(certfile="server-cert.pem", keyfile="private.key")
+
+# Envelopa o socket com TLS
+httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+
+print("Starting HTTPS server on port 4443...")
+httpd.serve_forever()
+```
+
+#### 3. Acessar o Servidor
+
+Abra o navegador em `https://[IP PRIVADO]:4443`.
+
+> Pode aparecer um **aviso de segurança** por ser autoassinado com IP. Ignore para este tutorial.
+
+#### 4. Verificar a Conexão Segura
+
+1. **URL** deve começar com `https://`.
+2. **Certificado**:
+
+   * **Chrome**: cadeado → **Certificate**.
+   * **Firefox**: cadeado → **More Information** → **View Certificate**.
+
+   ![](./img/ff-https.png)
+
+## Alternativa com Node.js e Forge
+
+Você também pode gerar uma Autoridade Certificadora e assinar certificados diretamente com JavaScript usando o pacote `node-forge`.
+
+### Dependências
+Para executar essa alternativa, é necessário instalar as bibliotecas que permitem gerar os certificados e rodar o servidor seguro:
+
+#### Para geração de certificados com JavaScript:
+
+```bash
+npm install node-forge
+```
+
+Essa biblioteca é usada para gerar, assinar e exportar certificados diretamente em Node.js, simulando uma autoridade certificadora (CA) local.
+
+#### Para rodar o servidor HTTPS com Python (Flask):
+
+```bash
+pip install flask
+```
+
+O Flask será utilizado como servidor backend, configurado para usar os certificados gerados e servir via HTTPS.
+
+### Geração de Certificados
+
+Para geração dos certificados foram seguidos os seguintes passos:
+
+1. **Criação da CA**: o script gera um par de chaves RSA para a Autoridade Certificadora (CA), cria um certificado digital autoassinado para ela e o salva como `ca-cert.pem`. Este certificado é o que será importado nos navegadores como "confiável".
+
+2. **Criação do certificado do servidor**: um segundo par de chaves é gerado para o servidor. O certificado do servidor é construído com as informações de identificação e assinado digitalmente pela chave da CA. O resultado é um certificado `server-cert.pem` que é confiável para qualquer cliente que tenha importado a CA.
+
+3. **Extensões e SANs**: o certificado do servidor inclui extensões como `subjectAltName`, com valores para `localhost` e `127.0.0.1`, e restrições como `keyUsage` e `extKeyUsage`, garantindo validade para uso como TLS.
+
+Para rodar esse script é necessário o seguinte comando:
 
 ```bash
 node generate-certs-forge.js
 ```
 
-**What this does:** Creates the cryptographic certificates needed for HTTPS:
+### Configuração do Servidor
 
-1. **Certificate Authority (CA)** - Acts as a trusted issuer
-2. **Server Certificate** - Proves the server's identity
-3. **Private Key** - Used for encryption/decryption
+Os arquivos `server-cert.pem` e `server-key.pem` são utilizados para configurar uma aplicação servidor com HTTPS. No Flask, essa configuração foi feita da seguinte forma:
 
-The script generates these files in the `certs/` directory:
-- `ca-cert.pem` - Certificate Authority certificate
-- `server-cert.pem` - Server's public certificate
-- `server-key.pem` - Server's private key
-
-**TLS Concept:** In the real world, companies like Let's Encrypt or DigiCert act as Certificate Authorities. Here, we're creating our own CA for demonstration.
-
-### Step 3: Fix Certificate File Names
-
-```bash
-cd certs
-cp server-cert.pem certificate.pem
-cp server-key.pem private-key.pem
-cd ..
+```python
+app.run(ssl_context=("certs/server-cert.pem", "certs/server-key.pem"), port=4443)
 ```
 
-**What this does:** The server expects specific file names, so we create copies with the correct names.
+O mesmo certificado pode ser utilizado em servidores Node.js, Express, ou qualquer outro software compatível com TLS.
 
-### Step 4: Start the Application
+Para iniciar o servidor é necessário executar o seguinte comando:
 
-```bash
-node server-fixed.js
+```python
+python server.py
 ```
 
-**Expected output:**
-```
-Starting servers...
+### Configuração do Cliente
 
-Verifying certificates...
-Certificate path: /Users/username/Projects/tls-for-dummies/certs/certificate.pem
-Private key path: /Users/username/Projects/tls-for-dummies/certs/private-key.pem
-Certificates validated.
-Certificate length: 1368 characters
-Private key length: 1706 characters
-HTTP server running on: http://localhost:6968
-HTTPS server running on: https://localhost:6969
-
-Instructions:
-1. Open https://localhost:6969 in your browser
-2. The browser will warn about a self-signed certificate
-3. Click "Advanced" and then "Proceed to localhost"
-4. Compare with http://localhost:6968
-
-Objective: Understand TLS/SSL in practice.
-```
-
-**What this does:** Starts both servers simultaneously, showing you the difference between encrypted and unencrypted connections.
-
-## Understanding the Servers
-
-### HTTP Server (Insecure) - Port 6968
-
-```javascript
-// Creates a basic HTTP server
-const httpServer = http.createServer(app);
-httpServer.listen(HTTP_PORT);
-```
-
-**Visit:** `http://localhost:6968`
-
-- **Shows:** "INSECURE" in large text
-- **Security:** None - all data travels in plain text
-- **Browser indicator:** No padlock icon
-
-### HTTPS Server (Secure) - Port 6969
-
-```javascript
-// Creates HTTPS server with TLS certificates
-const credentials = {
-  cert: fs.readFileSync('certs/certificate.pem', 'utf8'),
-  key: fs.readFileSync('certs/private-key.pem', 'utf8')
-};
-const httpsServer = https.createServer(credentials, app);
-httpsServer.listen(HTTPS_PORT);
-```
-
-**Visit:** `https://localhost:6969`
-
-- **Shows:** "SECURE" in large text
-- **Security:** TLS encryption protects all data
-- **Browser indicator:** Padlock icon (after accepting self-signed certificate)
+O cliente é o navegador, e para que ele aceite o certificado gerado, é necessário importar o certificado da CA (`ca-cert.pem`) nas configurações de certificados do sistema ou do próprio navegador (em Firefox e Chrome).
 
-## The TLS Handshake Process
+No Firefox, por exemplo:
 
-When you visit the HTTPS server, here's what happens:
-
-1. **Client Hello:** Your browser says "I want a secure connection"
-2. **Server Hello:** Server sends its certificate and public key
-3. **Certificate Verification:** Browser checks if the certificate is valid
-4. **Key Exchange:** Browser and server agree on encryption keys
-5. **Secure Communication:** All data is now encrypted
+1. Acesse as configurações → Privacidade e Segurança → Certificados → Ver Certificados
+2. Vá na aba "Autoridades"
+3. Clique em "Importar" e selecione `ca-cert.pem`
+4. Marque "Confiar nesta CA para identificar sites"
 
-## Exploring the Difference
-
-### Test Both Servers
+Com isso, qualquer certificado assinado pela CA será reconhecido como confiável.
 
-1. **Open HTTP version:** `http://localhost:6968`
-   - Notice the URL bar shows "Not Secure"
-   - Page displays "INSECURE"
+### Teste da Conexão
 
-2. **Open HTTPS version:** `https://localhost:6969`
-   - Browser shows security warning (because we're using self-signed certificates)
-   - Click "Advanced" → "Proceed to localhost (unsafe)"
-   - Page displays "SECURE"
-   - Notice the padlock icon
+Após rodar o servidor e importar a CA, ao acessar `https://localhost:4443`, o navegador exibirá o cadeado verde indicando que a conexão é segura. O certificado será exibido como "válido" pois foi emitido por uma autoridade que o navegador agora confia.
 
-### Browser Developer Tools
+![](./img/ff-https-node.png)
 
-Open Developer Tools (F12) and check the Security tab:
+#### Observação
 
-- **HTTP site:** Shows "This page is not secure"
-- **HTTPS site:** Shows "This page is secure (valid HTTPS)"
+Se o navegador exibia "conexão não segura" antes, é porque o certificado era **autoassinado**. Com essa nova abordagem, ele é **assinado por uma CA** separada e confiável, e portanto passa a ser aceito pelo navegador sem avisos.
 
-### Certificate Information Endpoint
+### Manutenção e Segurança
 
-Visit `https://localhost:6969/cert-info` to see detailed TLS connection information:
+Ao gerar e operar sua própria Autoridade Certificadora (CA), é possível controlar todo o ciclo de vida dos certificados utilizados em sua infraestrutura. Isso permite a adoção de práticas essenciais de segurança e gestão de identidades digitais, como:
 
-```json
-{
-  "protocol": "HTTPS",
-  "secure": true,
-  "connection": {
-    "cipher": "TLS_AES_256_GCM_SHA384",
-    "protocol": "TLSv1.3",
-    "authorized": true
-  },
-  "certificate": {
-    "subject": "localhost",
-    "issuer": "TLS for Dummies",
-    "algorithm": "SHA-256",
-    "keySize": "2048 bits",
-    "selfSigned": true
-  }
-}
-```
+* **Renovação de certificados**: Certificados possuem prazo de validade. A renovação periódica evita interrupções na comunicação segura e assegura a continuidade das operações.
+* **Revogação de certificados comprometidos**: Em caso de comprometimento de uma chave privada ou mau uso do certificado, é possível invalidá-lo por meio de mecanismos como CRLs (Certificate Revocation Lists) ou OCSP (Online Certificate Status Protocol).
+* **Emissão de múltiplos certificados**: A CA pode ser utilizada para emitir diferentes certificados para múltiplos serviços ou ambientes internos, mantendo uma cadeia de confiança comum.
+* **Reemissão com novos parâmetros criptográficos**: Caso se deseje atualizar o nível de segurança, é possível emitir certificados com novos algoritmos ou tamanhos de chave, como a migração de RSA-2048 para RSA-4096.
 
-## Key Files Explained
+Esse tipo de abordagem é especialmente adequado para:
 
-### `server-fixed.js` - Main Application
+* **Ambientes de desenvolvimento e testes**, onde a confiabilidade de uma CA pública não é necessária e a flexibilidade é essencial;
+* **Laboratórios de segurança**, nos quais se estuda o comportamento de aplicações diante de certificados expirados, revogados ou inválidos;
+* **Redes privadas e sistemas internos**, em que a criação de uma infraestrutura própria de confiança permite maior controle e menor dependência externa.
 
-```javascript
-// HTTP Server - No encryption
-const httpServer = http.createServer(app);
+Portanto, ao adotar uma CA local, é possível simular fielmente uma cadeia de confiança semelhante à utilizada em ambientes de produção, promovendo boas práticas de segurança da informação desde a fase de desenvolvimento.
 
-// HTTPS Server - With TLS encryption
-const httpsServer = https.createServer({
-  cert: fs.readFileSync('certs/certificate.pem', 'utf8'),
-  key: fs.readFileSync('certs/private-key.pem', 'utf8')
-}, app);
-```
+## Conclusão
 
-### `generate-certs-forge.js` - Certificate Generator
-
-```javascript
-// Generate Certificate Authority
-const caCert = forge.pki.createCertificate();
-caCert.publicKey = caKeys.publicKey;
-caCert.setSubject([{name: 'commonName', value: 'InteliCA'}]);
-caCert.sign(caKeys.privateKey, forge.md.sha256.create());
-
-// Generate Server Certificate
-const serverCert = forge.pki.createCertificate();
-serverCert.publicKey = serverKeys.publicKey;
-serverCert.setSubject([{name: 'commonName', value: 'localhost'}]);
-serverCert.sign(caKeys.privateKey, forge.md.sha256.create());
-```
-
-## Understanding Browser Warnings
-
-When you visit the HTTPS site, your browser shows a security warning because:
-
-1. **Self-signed certificate:** We created our own CA instead of using a trusted one
-2. **Not in browser's trust store:** Your browser doesn't recognize our custom CA
-3. **This is normal for development:** Real websites use certificates from trusted CAs like Let's Encrypt
-
-**In production:** Websites get certificates from trusted Certificate Authorities, so browsers don't show warnings.
-
-## Real-World TLS
-
-### Trusted Certificate Authorities
-
-In production, websites get certificates from trusted CAs:
-- **Let's Encrypt** (free, automated)
-- **DigiCert** (commercial)
-- **Cloudflare** (with additional services)
-
-### Certificate Validation
-
-Browsers validate certificates by:
-1. Checking the certificate chain
-2. Verifying the CA signature
-3. Ensuring the domain matches
-4. Confirming the certificate hasn't expired
-
-### Perfect Forward Secrecy
-
-Modern TLS uses ephemeral keys, meaning:
-- Each session gets unique encryption keys
-- If the server's private key is compromised, past sessions remain secure
-- This is called "Perfect Forward Secrecy"
-
-## Common TLS Concepts
-
-### Symmetric vs Asymmetric Encryption
-
-- **Asymmetric (RSA/ECDSA):** Used during handshake for key exchange
-- **Symmetric (AES):** Used for actual data encryption (faster)
-
-### TLS Versions
-
-- **TLS 1.3** (current): Faster handshake, better security
-- **TLS 1.2** (previous): Still widely used
-- **SSL 3.0 and earlier:** Deprecated due to security vulnerabilities
-
-### Cipher Suites
-
-The combination of:
-- **Key exchange algorithm** (RSA, ECDHE)
-- **Authentication algorithm** (RSA, ECDSA)
-- **Encryption algorithm** (AES, ChaCha20)
-- **MAC algorithm** (SHA256, Poly1305)
-
-## Troubleshooting
-
-### Server Won't Start
-
-1. **Check if ports are available:**
-   ```bash
-   lsof -i :6968
-   lsof -i :6969
-   ```
-
-2. **Kill existing processes:**
-   ```bash
-   kill <process_id>
-   ```
-
-### Certificate Issues
-
-1. **Regenerate certificates:**
-   ```bash
-   node generate-certs-forge.js
-   ```
-
-2. **Verify certificate files exist:**
-   ```bash
-   ls -la certs/
-   ```
-
-### Browser Issues
-
-1. **Clear browser cache and cookies**
-2. **Try incognito/private browsing mode**
-3. **Try a different browser**
-
-## Learning Outcomes
-
-After completing this demo, you should understand:
-
-✅ **What TLS/SSL is** and why it's important  
-✅ **How HTTPS differs from HTTP** in practice  
-✅ **What certificates are** and how they work  
-✅ **Why browsers show security warnings** for self-signed certificates  
-✅ **How to implement HTTPS** in a Node.js application  
-✅ **The basics of the TLS handshake** process  
-
-## Next Steps
-
-To deepen your understanding:
-
-1. **Explore Certificate Details** - Use browser dev tools to examine real website certificates
-2. **Try Let's Encrypt** - Set up free SSL certificates for a real domain
-3. **Learn about HSTS** - HTTP Strict Transport Security headers
-4. **Study Certificate Pinning** - Advanced security technique for mobile apps
-5. **Understand OCSP** - Online Certificate Status Protocol for revocation checking
-
-## Security Note
-
-This demo uses **self-signed certificates** which are perfect for learning but should **never be used in production**. Always use certificates from trusted Certificate Authorities for real websites.
-
----
-
-*This project is designed for educational purposes to help developers understand TLS/SSL concepts through hands-on experience.*
+Você criou um **servidor HTTPS seguro**, aprendeu duas formas de gerar certificados (com OpenSSL e com Node.js), e entendeu como funciona a cadeia de confiança com CA raiz e certificados assinados. Isso te dá autonomia para usar TLS em ambientes reais e seguros.
